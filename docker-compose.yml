@@ -1,39 +1,38 @@
 version: '3.9'
 
+networks:
+  gringotts:
+    name: gringotts
+  traefik_proxy:
+    external: true
+  postgres:
+    external: true
+
 services:
-
-  gringotts-web:
-    image: 'ghcr.io/ivarrace/gringotts-web:0.0.0'
-    container_name: gringotts-web
+  gringotts-core:
+    image: 'ghcr.io/ivarrace/gringotts-core:0.0.2-snapshot'
+    container_name: gringotts-core
     restart: unless-stopped
-    depends_on:
-      - gringotts-api
-    ports:
-      - '8082:80'
-
-  gringotts-api:
-    image: 'ghcr.io/ivarrace/gringotts-core:0.0.1-snapshot'
-    build:
-      context: .
-    container_name: gringotts-api
-    restart: unless-stopped
-    depends_on:
-      - gringotts-db
     ports:
       - '8080:8080'
+    networks:
+      - gringotts
+      - postgres
+      - traefik_proxy
     environment:
+      - SERVER_FORWARD-HEADERS-STRATEGY=framework #delete for next release
+      - SERVER_SERVLET_CONTEXT-PATH=/api #Updated for traefik route
       - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://gringotts-db:5432/${POSTGRES_DB}
-      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
-      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
-          
-  gringotts-db:
-    image: 'postgres:13.1-alpine'
-    container_name: gringotts-db
-    restart: always
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${DATASOURCE_HOST}/${DATASOURCE_DB}
+      - SPRING_DATASOURCE_USERNAME=${DATASOURCE_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=${DATASOURCE_PASSWORD}
+      - IVARRACE_JWT_SECRET=${JWT_SECRET}
     volumes:
-      - './postgres_data:/var/lib/postgresql/data'
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - ./logs:/logs
+    labels:
+      # Proxy
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_proxy"
+      - "traefik.http.routers.gringotts-core.rule=Host(`gringotts.ivarrace.com`) && (PathPrefix(`/api`))"
+      - "traefik.http.routers.gringotts-core.entrypoints=websecure"
+      - "traefik.http.routers.gringotts-core.tls=true"
